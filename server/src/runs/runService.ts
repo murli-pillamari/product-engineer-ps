@@ -3,12 +3,13 @@ import { eq } from "drizzle-orm";
 
 import { db } from "../db";
 import { events, runs } from "../db/schema";
-import { fakeGenerator } from "../generator/fakeGenerator";
-
+import { fakeGenerator, type FakeGeneratorOptions } from "../generator/fakeGenerator";
 type StartRunInput = {
   runId: string;
   conversationId: string;
   userMessageId: string;
+
+  generatorOptions?: FakeGeneratorOptions;
 
   onEvent?: (event: {
     id: string;
@@ -25,6 +26,7 @@ export async function startRun({
   runId,
   conversationId,
   userMessageId,
+  generatorOptions,
   onEvent,
 }: StartRunInput) {
 
@@ -44,6 +46,7 @@ export async function startRun({
     for await (const chunk of fakeGenerator({
       count: 30,
       delayMs: 500,
+      ...generatorOptions,
     })) {
       sequence++;
 

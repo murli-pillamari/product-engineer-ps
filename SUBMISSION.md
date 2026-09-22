@@ -3,10 +3,10 @@
 ## Candidate
 
 - **Name:** Murli Pillamari
-- **Email:** <YOUR_EMAIL>
-- **GitHub:** <YOUR_GITHUB_URL>
+- **Email:** murlipillamari6@gmail.com
+- **GitHub:** https://github.com/murli-pillamari
 - **Selected problem:** Problem 1 — Resumable Realtime Conversation
-- **Demo video:** <YOUR_DEMO_VIDEO_URL>
+- **Demo video:** https://drive.google.com/file/d/1tZUvhZE0q9D6t2RLYA3sRg5gXntmQxfQ/view?usp=sharing
 
 ## Run the project
 
@@ -15,249 +15,339 @@
 - Node.js 20+
 - npm
 
-No external API keys or paid services are required.
+No external API keys are required.
 
-### Install dependencies
-
-From the project root:
+### Start the server
 
 ```bash
 cd server
 npm install
-
-cd ../client
-npm install
-Start the backend
-cd server
+npm run db:push
 npm run dev
+```
 
-The backend runs on:
+The server runs on:
 
+```text
 http://localhost:4000
+```
 
 WebSocket endpoint:
 
+```text
 ws://localhost:4000
-Start the frontend
+```
 
-In another terminal:
+### Start the client
 
+Open another terminal:
+
+```bash
 cd client
+npm install
 npm run dev
+```
 
-The frontend runs on:
+The client runs on:
 
+```text
 http://localhost:3000
-Database
+```
 
-The application uses SQLite with Drizzle ORM.
+### Successful scenario
 
-The database is created locally and does not require an external database service.
+1. Open http://localhost:3000.
+2. Start a conversation.
+3. The server generates a sequence of text events.
+4. Events are persisted to SQLite.
+5. Events are streamed to the client over WebSocket.
+6. The run reaches its terminal state after generation completes.
 
-If required for a fresh setup:
+### Recovery scenario
 
-cd server
-npm run db:push
-Successful scenario
-Start the backend.
-Start the frontend.
-Open http://localhost:3000.
-Click Start Conversation.
-The server generates a sequence of text events.
-Events are persisted to SQLite before being delivered through WebSocket.
-The client displays the streamed events in sequence.
-The run eventually reaches completed.
-Recovery scenario
-Start a conversation.
-Allow several events to arrive.
-Disconnect the WebSocket/client while the run is still active.
-Allow the server to continue generating events.
-Reconnect the client.
-The client sends the runId and its last received sequence number.
-The server replays persisted events after the cursor.
-The connection transitions back to live delivery.
-The client receives the complete ordered event stream without logical duplicates.
-Run the tests
+1. Start a conversation.
+2. Allow several events to arrive.
+3. Disconnect the client while generation is still active.
+4. Allow the server to continue generating events.
+5. Reconnect the client.
+6. The client provides the run ID and last received sequence number.
+7. The server replays the missing persisted events.
+8. The client continues receiving the live stream.
+
+## Run the tests
+
+The repository contains development verification code used while implementing the run and generator behaviour.
+
+Final automated test coverage is intentionally focused on the core challenge behaviour rather than broad application coverage.
+
+```bash
 cd server
 npm test
+```
 
-The tests cover important success, failure, ordering, and recovery behaviour.
+If the test command is not available in the submitted package, the core scenarios can be reproduced using the application and benchmark steps described below.
 
-Acceptance scenarios and verification
-AC1 — Ordered live stream
+## Acceptance scenarios and verification
 
-Implemented.
-
-Each generated event contains:
-
-Stable event ID
-Run ID
-Monotonically increasing sequence number
-Event type
-Payload
-
-Events are persisted and delivered according to their sequence number.
-
-AC2 — Missed-event recovery
+### AC1 — Ordered live stream
 
 Implemented.
 
-The client maintains a lastSequence cursor.
+Each streamed event has a monotonically increasing sequence number within a run.
 
-When reconnecting, it sends:
+The client displays events according to their sequence.
 
-{
-  "type": "resume_run",
-  "runId": "<run-id>",
-  "lastSequence": 5
-}
-
-The server retrieves persisted events after sequence 5 and replays them before returning to live delivery.
-
-AC3 — Replay/live overlap
+### AC2 — Missed-event recovery
 
 Implemented.
 
-A reconnecting client is registered with the run connection manager before replay begins.
+The client keeps a `lastSequence` cursor and sends it together with the run ID when reconnecting.
 
-Events generated during replay are buffered for that connection. After replay completes, buffered events are flushed in sequence order before the connection transitions to live mode.
+The server retrieves persisted events after that cursor and replays them.
 
-The client also deduplicates events using their stable event IDs.
+### AC3 — Replay/live overlap
 
-AC4 — Service restart
+Implemented as part of the connection management design.
 
-Implemented according to the documented interruption policy.
+A reconnecting connection enters replay mode before historical events are retrieved. Events generated during replay can be buffered and then flushed before the connection returns to live delivery.
 
-Run state and event history are persisted in SQLite rather than relying on in-memory state.
+Stable event IDs and client-side deduplication provide an additional protection against logical duplicate events.
 
-On service restart, an in-progress run can be identified from persisted state and handled as an interrupted run according to the implementation's restart policy.
+### AC4 — Service restart
 
-AC5 — Generator failure after partial output
+The event and run state are persisted in SQLite, so the history does not depend only on the WebSocket connection's in-memory state.
+
+The prototype is designed around a single-process server and does not implement distributed multi-server recovery.
+
+### AC5 — Generator failure after partial output
 
 Implemented.
 
-If the generator fails after producing some events:
+The fake generator can be configured to fail after a number of generated events.
 
-Previously generated events remain persisted.
-The run transitions to failed.
-The error is persisted.
-The run cannot subsequently transition to completed.
-AC6 — Invalid/stale cursor
+Previously generated events remain persisted and the run transitions to `failed`.
 
-Implemented with explicit cursor validation.
+The demo video shows this scenario.
 
-An invalid cursor results in an explicit recoverable response rather than silently returning an apparently successful empty replay.
+### AC6 — Invalid/stale cursor
 
-Verification benchmark
+Cursor validation is intentionally limited in this prototype. The primary recovery path uses the persisted run history and client sequence cursor.
 
-The verification benchmark uses a 30-event generated response.
+A production implementation would additionally maintain explicit cursor-retention and expiry semantics and return a structured recoverable error when a cursor is no longer valid.
 
-The benchmark scenario:
+### Verification benchmark
 
-Start a run.
-Stream events while connected.
-Interrupt the connection while the run is active.
-Reconnect using the client's last sequence number.
-Allow the run to finish.
-Verify the final ordered event sequence.
+The benchmark uses a 30-event generated response and exercises interruption and reconnection while the run is active.
 
-Command/steps:
+Run/verify the benchmark using the project instructions and record the actual observed values below.
 
-<ADD FINAL BENCHMARK COMMAND HERE>
-
-Observed result:
-
+```text
 Total events:
 Received events:
 Missing events:
 Duplicate events:
 Final state:
-Failure/recovery scenario demonstrated in the video
+```
 
-The demo shows an active conversation being interrupted while events are being generated.
+The demo video includes the benchmark execution and observed result.
 
-The client reconnects using the persisted runId and its last received sequence number. The server replays the missing events from SQLite and then resumes live delivery.
+### Failure/recovery scenario demonstrated in the video
 
-The demo also shows a generator failure after partial output and the resulting terminal failed state.
+The demo shows a realtime run being interrupted and then reconnected using the same run ID and last received sequence.
 
-Architecture and data flow
-                    ┌─────────────────────┐
-                    │   Next.js / React   │
-                    │       Client        │
-                    └──────────┬──────────┘
-                               │
-                         WebSocket
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │ Node.js + ws Server │
-                    └──────────┬──────────┘
-                               │
-              ┌────────────────┼────────────────┐
-              │                │                │
-              ▼                ▼                ▼
-       ┌─────────────┐  ┌─────────────┐  ┌──────────────┐
-       │ Run Service │  │Event Service│  │  Connection  │
-       │             │  │             │  │   Manager    │
-       └──────┬──────┘  └──────┬──────┘  └──────┬───────┘
-              │                │                │
-              └────────────────┼────────────────┘
-                               ▼
-                    ┌─────────────────────┐
-                    │ SQLite + Drizzle ORM│
-                    │                     │
-                    │ conversations       │
-                    │ runs                │
-                    │ events              │
-                    └─────────────────────┘
-                               ▲
-                               │
-                    ┌─────────────────────┐
-                    │   Fake Generator    │
-                    │                     │
-                    │ deterministic text  │
-                    │ events + failures   │
-                    └─────────────────────┘
-Event flow
-Fake Generator
-      │
-      ▼
+It also demonstrates a generator failure after partial output. The previously generated events remain available and the run enters the failed state.
+
+## Architecture and data flow
+
+```text
+                    +----------------------+
+                    |   Next.js / React    |
+                    |       Client         |
+                    +----------+-----------+
+                               |
+                           WebSocket
+                               |
+                               v
+                    +----------------------+
+                    | Node.js WebSocket    |
+                    |       Server         |
+                    +----------+-----------+
+                               |
+             +-----------------+-----------------+
+             |                 |                 |
+             v                 v                 v
+      +-------------+   +-------------+   +-------------+
+      | Run Service |   |Event Service|   | Connection  |
+      |             |   |             |   |   Manager   |
+      +------+------+   +------+------+   +------+------+
+             |                 |                 |
+             +-----------------+-----------------+
+                               |
+                               v
+                    +----------------------+
+                    | SQLite + Drizzle ORM |
+                    |                      |
+                    | conversations        |
+                    | runs                 |
+                    | events               |
+                    +----------+-----------+
+                               |
+                               v
+                    +----------------------+
+                    |   Fake Generator      |
+                    | deterministic events |
+                    +----------------------+
+```
+
+### Normal event flow
+
+```text
+Generator
+   |
+   v
 Generate chunk
-      │
-      ▼
-Assign sequence number + event ID
-      │
-      ▼
-Persist event in SQLite
-      │
-      ▼
-Publish to WebSocket
-      │
-      ▼
-Client receives event
-      │
-      ▼
-Update lastSequence
-Reconnection flow
+   |
+   v
+Assign event ID + sequence
+   |
+   v
+Persist event
+   |
+   v
+Publish through WebSocket
+   |
+   v
+Client updates lastSequence
+```
+
+### Recovery flow
+
+```text
 Client disconnects
-       │
-       ▼
-Client retains runId + lastSequence
-       │
-       ▼
+       |
+       v
+Client keeps runId + lastSequence
+       |
+       v
 Client reconnects
-       │
-       ▼
-Server subscribes connection
-       │
-       ▼
-Read persisted events after cursor
-       │
-       ▼
+       |
+       v
+Server reads persisted events
+       |
+       v
 Replay missing events
-       │
-       ▼
-Flush events generated during replay
+       |
+       v
+Transition back to live stream
+```
+
+## Technology choices
+
+### Next.js + React + TypeScript
+
+Used for the realtime client and explicit connection/run state management.
+
+TypeScript provides strong typing for events and WebSocket message structures.
+
+### Node.js + WebSocket
+
+WebSocket was selected because the problem requires realtime event streaming rather than polling.
+
+The `ws` library keeps the server implementation lightweight.
+
+### SQLite + Drizzle ORM
+
+SQLite was chosen because this challenge is scoped to a self-contained prototype and explicitly does not require multiple production servers or regions.
+
+Drizzle provides typed database access without adding a large abstraction layer.
+
+### Deterministic fake generator
+
+A deterministic fake generator was used instead of a real LLM.
+
+This avoids external API dependencies and makes successful streaming and failure scenarios reproducible.
+
+## Important decisions
+
+### 1. Persist before delivery
+
+Events are persisted before being sent through WebSocket.
+
+This makes durable history the source of truth instead of relying on a live connection to preserve data.
+
+### 2. Sequence numbers as the cursor
+
+Every event receives a monotonically increasing sequence number within a run.
+
+The client can therefore recover by providing its last received sequence number.
+
+### 3. Replay/live transition
+
+The reconnecting connection is handled as a replaying connection before it returns to live delivery.
+
+Events generated during the replay period can be buffered and delivered after the historical replay.
+
+## Assumptions and limitations
+
+- The prototype runs as a single server process.
+- Authentication and authorization are outside the challenge scope.
+- Multiple simultaneous assistant runs are outside the selected scope.
+- Multiple production servers and regions are not implemented.
+- The fake generator represents the model/runtime.
+- SQLite is intended for the challenge prototype rather than a horizontally scaled production environment.
+- Rich message types and attachments are outside scope.
+- Cancellation is outside scope.
+- Event retention and cursor expiry are simplified.
+- No paid external AI service is required.
+
+## Production and scale
+
+For a production implementation, I would first move durable state to a shared production database such as PostgreSQL.
+
+I would then introduce a shared messaging/pub-sub mechanism for realtime delivery across multiple application instances.
+
+Other production improvements would include:
+
+- Authentication and authorization
+- Durable background job processing
+- Event retention and cursor expiry
+- Metrics and distributed tracing
+- Connection/reconnect observability
+- Rate limiting
+- Horizontal scaling
+- More comprehensive automated integration tests
+
+These are proposed production improvements and are not claimed as part of the submitted single-server prototype.
+
+## AI usage
+
+I used ChatGPT as an engineering assistant during the implementation.
+
+It helped with:
+
+- Breaking the challenge into implementation steps.
+- Discussing event ordering and WebSocket reconnection.
+- Reviewing replay/live transition scenarios.
+- Generating initial implementation scaffolding.
+- Identifying failure and recovery edge cases.
+- Reviewing documentation and test scenarios.
+
+I reviewed and tested the generated suggestions, modified the implementation where necessary, and remain responsible for the submitted code and its design.
+
+## Credibility note
+
+### Snowkap
+
+I previously worked on a document-processing workflow where users uploaded documents and needed visibility into processing status and extraction progress while an AI backend processed the documents.
+
+My contribution involved frontend development and integration of the processing workflow, including representing processing states and progress to users and integrating the application with backend services.
+
+The workflow involved cloud infrastructure and asynchronous document processing, including S3-backed document handling and database-backed processing state.
+
+One important engineering consideration was keeping the UI synchronized with long-running backend processing and intermediate states rather than treating document processing as a single synchronous request.
+
+Specific customer details and internal metrics are confidential.
+
        │
        ▼
 Switch connection to live mode
